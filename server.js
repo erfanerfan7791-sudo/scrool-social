@@ -65,6 +65,24 @@ async function setupDatabase() {
   await pool.query(`
     ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT ''
+const dbInfo = await pool.query(`
+  SELECT
+    current_database() AS database_name,
+    current_schema() AS schema_name
+`);
+
+const columns = await pool.query(`
+  SELECT column_name
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+  AND table_name = 'users'
+`);
+
+console.log("CONNECTED DATABASE:", dbInfo.rows[0]);
+console.log(
+  "USERS COLUMNS:",
+  columns.rows.map(row => row.column_name)
+);
   `);
 
   // Posts
