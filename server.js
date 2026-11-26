@@ -7,10 +7,10 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const { rateLimit } = require("express-rate-limit");
-const path = require("path");
 
 const app = express();
 app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 3000;
 
 if (!process.env.DATABASE_URL || !process.env.JWT_SECRET) {
@@ -35,6 +35,7 @@ const authLimit = rateLimit({
   legacyHeaders: false
 });
 
+// Database setup and migrations
 async function setupDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -78,16 +79,30 @@ async function setupDatabase() {
       CHECK(follower_id <> following_id)
     );
   `);
+
+  // Fix existing databases without deleting user data
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS bio VARCHAR(250) DEFAULT '';
+
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT '';
+  `);
 }
 
+// JWT token
 function createToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username },
+    {
+      id: user.id,
+      username: user.username
+    },
     process.env.JWT_SECRET,
     { expiresIn: "7d" }
   );
 }
 
+// Authentication middleware
 function authenticate(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ")
@@ -95,25 +110,33 @@ function authenticate(req, res, next) {
     : "";
 
   if (!token) {
-    return res.status(401).json({ error: "ابتدا وارد حساب شو" });
+    return res.status(401).json({
+      error: "ابتدا وارد حساب شو"
+    });
   }
 
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ error: "نشست نامعتبر یا منقضی شده" });
+    return res.status(401).json({
+      error: "نشست نامعتبر یا منقضی شده"
+    });
   }
 }
 
+// Health check
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", app: "Scrool Social" });
+  res.json({
+    status: "ok",
+    app: "Scrool Social"
+  });
 });
 
 // Register
 app.post("/api/register", authLimit, async (req, res) => {
   try {
-    const { username, displayName, password } = req.body;
+    const { username, displayName, password } = req.body || {};
 
     if (
       typeof username !== "string" ||
@@ -141,24 +164,30 @@ app.post("/api/register", authLimit, async (req, res) => {
 
     const user = result.rows[0];
 
-    res.status(201).json({
+    return res.status(201).json({
       token: createToken(user),
       user
     });
+
   } catch (err) {
     if (err.code === "23505") {
-      return res.status(409).json({ error: "این نام کاربری قبلاً ثبت شده" });
+      return res.status(409).json({
+        error: "این نام کاربری قبلاً ثبت شده"
+      });
     }
 
-    console.error(err);
-    res.status(500).json({ error: "خطای سرور" });
+    console.error("Register error:", err);
+
+    return res.status(500).json({
+      error: "خطای سرور"
+    });
   }
 });
 
 // Login
 app.post("/api/login", authLimit, async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
 
     if (
       typeof username !== "string" ||
@@ -166,24 +195,30 @@ app.post("/api/login", authLimit, async (req, res) => {
       username.length > 30 ||
       password.length > 72
     ) {
-      return res.status(400).json({ error: "اطلاعات نامعتبر است" });
+      return res.status(400).json({
+        error: "اطلاعات نامعتبر است"
+      });
     }
 
     const result = await pool.query(
       `SELECT id, username, display_name, password_hash
-       FROM users WHERE username = $1`,
+       FROM users
+       WHERE username = $1`,
       [username.toLowerCase()]
     );
 
     const user = result.rows[0];
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    if (
+      !user ||
+      !(await bcrypt.compare(password, user.password_hash))
+    ) {
       return res.status(401).json({
         error: "نام کاربری یا رمز عبور اشتباه است"
       });
     }
 
-    res.json({
+    return res.json({
       token: createToken(user),
       user: {
         id: user.id,
@@ -191,9 +226,13 @@ app.post("/api/login", authLimit, async (req, res) => {
         display_name: user.display_name
       }
     });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "خطای سرور" });
+    console.error("Login error:", err);
+
+    return res.status(500).json({
+      error: "خطای سرور"
+    });
   }
 });
 
@@ -202,25 +241,39 @@ app.get("/api/me", authenticate, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, username, display_name, bio, avatar, created_at
-       FROM users WHERE id = $1`,
+       FROM users
+       WHERE id = $1`,
       [req.user.id]
     );
 
     if (!result.rows[0]) {
-      return res.status(404).json({ error: "کاربر پیدا نشد" });
+      return res.status(404).json({
+        error: "کاربر پیدا نشد"
+      });
     }
 
-    res.json({ user: result.rows[0] });
+    return res.json({
+      user: result.rows[0]
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "خطای سرور" });
+    console.error("Current user error:", err);
+
+    return res.status(500).json({
+      error: "خطای سرور"
+    });
   }
 });
 
+// API information
 app.get("/api", (req, res) => {
-  res.json({ name: "Scrool Social", version: "1.0.0" });
+  res.json({
+    name: "Scrool Social",
+    version: "1.0.0"
+  });
 });
 
+// Start server
 async function start() {
   await setupDatabase();
 
