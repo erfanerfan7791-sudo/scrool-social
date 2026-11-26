@@ -10,6 +10,7 @@ const { rateLimit } = require("express-rate-limit");
 const path = require("path");
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 
 if (!process.env.DATABASE_URL || !process.env.JWT_SECRET) {
