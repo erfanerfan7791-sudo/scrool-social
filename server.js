@@ -9,6 +9,7 @@ const { Pool } = require("pg");
 const { rateLimit } = require("express-rate-limit");
 
 const app = express();
+
 app.set("trust proxy", 1);
 
 const PORT = process.env.PORT || 3000;
@@ -21,7 +22,9 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL.includes("localhost")
     ? false
-    : { rejectUnauthorized: false }
+    : { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000
 });
 
 app.use(helmet());
@@ -35,10 +38,14 @@ const authLimit = rateLimit({
   legacyHeaders: false
 });
 
-// Database setup and migrations
+// ===============================
+// DATABASE SETUP
+// ===============================
+
 async function setupDatabase() {
+  // Users
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS public.users (
       id SERIAL PRIMARY KEY,
       username VARCHAR(30) UNIQUE NOT NULL,
       display_name VARCHAR(60) NOT NULL,
@@ -46,38 +53,10 @@ async function setupDatabase() {
       bio VARCHAR(250) DEFAULT '',
       avatar TEXT DEFAULT '',
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
+    )
+  `);
 
-    CREATE TABLE IF NOT EXISTS posts (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      content TEXT NOT NULL,
-      image_url TEXT DEFAULT '',
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS likes (
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY(user_id, post_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS comments (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
-      content VARCHAR(1000) NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS follows (
-      follower_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      following_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY(follower_id, following_id),
-      CHECK(follower_id <> following_id)
-  // Database migrations
+  // Migrations for existing users table
   await pool.query(`
     ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS bio VARCHAR(250) DEFAULT ''
@@ -88,22 +67,73 @@ async function setupDatabase() {
     ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT ''
   `);
 
+  // Posts
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.posts (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      image_url TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Likes
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.likes (
+      user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
+      post_id INTEGER REFERENCES public.posts(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY(user_id, post_id)
+    )
+  `);
+
+  // Comments
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.comments (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
+      post_id INTEGER REFERENCES public.posts(id) ON DELETE CASCADE,
+      content VARCHAR(1000) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Follows
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.follows (
+      follower_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
+      following_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY(follower_id, following_id),
+      CHECK(follower_id <> following_id)
+    )
+  `);
+
+  // Verify users table columns
+  const check = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'users'
+    ORDER BY ordinal_position
+  `);
+
+  const columns = check.rows.map(row => row.column_name);
+
+  console.log("Users table columns:", columns.join(", "));
+
+  if (!columns.includes("bio") || !columns.includes("avatar")) {
+    throw new Error("Required users columns are missing");
+  }
+
   console.log("Database migrations completed successfully");
 }
-    );
-  `);
 
-  // Fix existing databases without deleting user data
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS bio VARCHAR(250) DEFAULT '';
+// ===============================
+// JWT
+// ===============================
 
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT '';
-  `);
-}
-
-// JWT token
 function createToken(user) {
   return jwt.sign(
     {
@@ -115,9 +145,13 @@ function createToken(user) {
   );
 }
 
-// Authentication middleware
+// ===============================
+// AUTHENTICATION
+// ===============================
+
 function authenticate(req, res, next) {
   const header = req.headers.authorization || "";
+
   const token = header.startsWith("Bearer ")
     ? header.slice(7)
     : "";
@@ -138,15 +172,33 @@ function authenticate(req, res, next) {
   }
 }
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    app: "Scrool Social"
-  });
+// ===============================
+// HEALTH CHECK
+// ===============================
+
+app.get("/api/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+
+    res.json({
+      status: "ok",
+      database: "connected",
+      app: "Scrool Social"
+    });
+  } catch (err) {
+    console.error("Health error:", err);
+
+    res.status(503).json({
+      status: "error",
+      database: "disconnected"
+    });
+  }
 });
 
-// Register
+// ===============================
+// REGISTER
+// ===============================
+
 app.post("/api/register", authLimit, async (req, res) => {
   try {
     const { username, displayName, password } = req.body || {};
@@ -169,15 +221,20 @@ app.post("/api/register", authLimit, async (req, res) => {
     const hash = await bcrypt.hash(password, 12);
 
     const result = await pool.query(
-      `INSERT INTO users (username, display_name, password_hash)
+      `INSERT INTO public.users
+       (username, display_name, password_hash)
        VALUES ($1, $2, $3)
-       RETURNING id, username, display_name`,
-      [username.toLowerCase(), displayName.trim(), hash]
+       RETURNING id, username, display_name, bio, avatar, created_at`,
+      [
+        username.toLowerCase(),
+        displayName.trim(),
+        hash
+      ]
     );
 
     const user = result.rows[0];
 
-    return res.status(201).json({
+    res.status(201).json({
       token: createToken(user),
       user
     });
@@ -191,13 +248,16 @@ app.post("/api/register", authLimit, async (req, res) => {
 
     console.error("Register error:", err);
 
-    return res.status(500).json({
+    res.status(500).json({
       error: "خطای سرور"
     });
   }
 });
 
-// Login
+// ===============================
+// LOGIN
+// ===============================
+
 app.post("/api/login", authLimit, async (req, res) => {
   try {
     const { username, password } = req.body || {};
@@ -215,7 +275,7 @@ app.post("/api/login", authLimit, async (req, res) => {
 
     const result = await pool.query(
       `SELECT id, username, display_name, password_hash
-       FROM users
+       FROM public.users
        WHERE username = $1`,
       [username.toLowerCase()]
     );
@@ -231,7 +291,7 @@ app.post("/api/login", authLimit, async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       token: createToken(user),
       user: {
         id: user.id,
@@ -243,18 +303,27 @@ app.post("/api/login", authLimit, async (req, res) => {
   } catch (err) {
     console.error("Login error:", err);
 
-    return res.status(500).json({
+    res.status(500).json({
       error: "خطای سرور"
     });
   }
 });
 
-// Current user
+// ===============================
+// CURRENT USER
+// ===============================
+
 app.get("/api/me", authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, username, display_name, bio, avatar, created_at
-       FROM users
+      `SELECT
+        id,
+        username,
+        display_name,
+        bio,
+        avatar,
+        created_at
+       FROM public.users
        WHERE id = $1`,
       [req.user.id]
     );
@@ -265,28 +334,47 @@ app.get("/api/me", authenticate, async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       user: result.rows[0]
     });
 
   } catch (err) {
     console.error("Current user error:", err);
 
-    return res.status(500).json({
+    res.status(500).json({
       error: "خطای سرور"
     });
   }
 });
 
-// API information
+// ===============================
+// API INFORMATION
+// ===============================
+
 app.get("/api", (req, res) => {
   res.json({
     name: "Scrool Social",
-    version: "1.0.0"
+    version: "1.0.0",
+    status: "running"
   });
 });
 
-// Start server
+// ===============================
+// ERROR HANDLER
+// ===============================
+
+app.use((err, req, res, next) => {
+  console.error("Unexpected error:", err);
+
+  res.status(500).json({
+    error: "خطای داخلی سرور"
+  });
+});
+
+// ===============================
+// START SERVER
+// ===============================
+
 async function start() {
   await setupDatabase();
 
