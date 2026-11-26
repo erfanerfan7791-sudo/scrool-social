@@ -39,11 +39,10 @@ const authLimit = rateLimit({
 });
 
 // =====================================
-// DATABASE SETUP AND MIGRATIONS
+// DATABASE
 // =====================================
 
 async function setupDatabase() {
-  // Check database connection
   const connection = await pool.query(`
     SELECT current_database() AS database_name,
            current_schema() AS schema_name
@@ -51,7 +50,6 @@ async function setupDatabase() {
 
   console.log("DATABASE CONNECTION:", connection.rows[0]);
 
-  // Create users table if it does not exist
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.users (
       id SERIAL PRIMARY KEY,
@@ -64,7 +62,6 @@ async function setupDatabase() {
     )
   `);
 
-  // IMPORTANT: Migrate existing users table
   await pool.query(`
     ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS bio VARCHAR(250) DEFAULT ''
@@ -75,7 +72,6 @@ async function setupDatabase() {
     ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT ''
   `);
 
-  // Ensure defaults for existing rows
   await pool.query(`
     UPDATE public.users
     SET bio = ''
@@ -88,7 +84,6 @@ async function setupDatabase() {
     WHERE avatar IS NULL
   `);
 
-  // Posts
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.posts (
       id SERIAL PRIMARY KEY,
@@ -99,7 +94,6 @@ async function setupDatabase() {
     )
   `);
 
-  // Likes
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.likes (
       user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
@@ -109,7 +103,6 @@ async function setupDatabase() {
     )
   `);
 
-  // Comments
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.comments (
       id SERIAL PRIMARY KEY,
@@ -120,7 +113,6 @@ async function setupDatabase() {
     )
   `);
 
-  // Follows
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.follows (
       follower_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
@@ -131,7 +123,6 @@ async function setupDatabase() {
     )
   `);
 
-  // Verify actual database columns
   const result = await pool.query(`
     SELECT column_name
     FROM information_schema.columns
@@ -145,9 +136,7 @@ async function setupDatabase() {
   console.log("USERS COLUMNS:", columns.join(", "));
 
   if (!columns.includes("bio") || !columns.includes("avatar")) {
-    throw new Error(
-      "Database migration failed: bio or avatar column is missing"
-    );
+    throw new Error("Database migration failed");
   }
 
   console.log("Database migrations completed successfully");
@@ -229,18 +218,37 @@ app.post("/api/register", authLimit, async (req, res) => {
   try {
     const { username, displayName, password } = req.body || {};
 
+    if (typeof username !== "string") {
+      return res.status(400).json({
+        error: "نام کاربری را وارد کن."
+      });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+
+    if (!/^[a-z0-9_]{3,30}$/.test(cleanUsername)) {
+      return res.status(400).json({
+        error: "نام کاربری باید ۳ تا ۳۰ کاراکتر و فقط شامل حروف انگلیسی، عدد یا _ باشد."
+      });
+    }
+
     if (
-      typeof username !== "string" ||
-      !/^[a-zA-Z0-9_]{3,30}$/.test(username) ||
       typeof displayName !== "string" ||
       displayName.trim().length < 2 ||
-      displayName.trim().length > 60 ||
+      displayName.trim().length > 60
+    ) {
+      return res.status(400).json({
+        error: "نام نمایشی باید بین ۲ تا ۶۰ کاراکتر باشد."
+      });
+    }
+
+    if (
       typeof password !== "string" ||
       password.length < 8 ||
       password.length > 72
     ) {
       return res.status(400).json({
-        error: "اطلاعات نامعتبر است. رمز باید حداقل ۸ کاراکتر باشد."
+        error: "رمز عبور باید بین ۸ تا ۷۲ کاراکتر باشد."
       });
     }
 
@@ -252,7 +260,7 @@ app.post("/api/register", authLimit, async (req, res) => {
        VALUES ($1, $2, $3)
        RETURNING id, username, display_name, bio, avatar, created_at`,
       [
-        username.toLowerCase(),
+        cleanUsername,
         displayName.trim(),
         hash
       ]
@@ -260,7 +268,7 @@ app.post("/api/register", authLimit, async (req, res) => {
 
     const user = result.rows[0];
 
-    res.status(201).json({
+    return res.status(201).json({
       token: createToken(user),
       user
     });
@@ -268,13 +276,13 @@ app.post("/api/register", authLimit, async (req, res) => {
   } catch (err) {
     if (err.code === "23505") {
       return res.status(409).json({
-        error: "این نام کاربری قبلاً ثبت شده"
+        error: "این نام کاربری قبلاً ثبت شده است."
       });
     }
 
     console.error("Register error:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "خطای سرور"
     });
   }
@@ -291,11 +299,18 @@ app.post("/api/login", authLimit, async (req, res) => {
     if (
       typeof username !== "string" ||
       typeof password !== "string" ||
-      username.length > 30 ||
       password.length > 72
     ) {
       return res.status(400).json({
-        error: "اطلاعات نامعتبر است"
+        error: "اطلاعات ورود نامعتبر است."
+      });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+
+    if (!cleanUsername || cleanUsername.length > 30) {
+      return res.status(400).json({
+        error: "نام کاربری نامعتبر است."
       });
     }
 
@@ -303,7 +318,7 @@ app.post("/api/login", authLimit, async (req, res) => {
       `SELECT id, username, display_name, password_hash
        FROM public.users
        WHERE username = $1`,
-      [username.toLowerCase()]
+      [cleanUsername]
     );
 
     const user = result.rows[0];
@@ -313,11 +328,11 @@ app.post("/api/login", authLimit, async (req, res) => {
       !(await bcrypt.compare(password, user.password_hash))
     ) {
       return res.status(401).json({
-        error: "نام کاربری یا رمز عبور اشتباه است"
+        error: "نام کاربری یا رمز عبور اشتباه است."
       });
     }
 
-    res.json({
+    return res.json({
       token: createToken(user),
       user: {
         id: user.id,
@@ -329,7 +344,7 @@ app.post("/api/login", authLimit, async (req, res) => {
   } catch (err) {
     console.error("Login error:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "خطای سرور"
     });
   }
@@ -360,27 +375,27 @@ app.get("/api/me", authenticate, async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       user: result.rows[0]
     });
 
   } catch (err) {
     console.error("Current user error:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "خطای سرور"
     });
   }
 });
 
 // =====================================
-// API INFORMATION
+// API
 // =====================================
 
 app.get("/api", (req, res) => {
   res.json({
     name: "Scrool Social",
-    version: "1.0.0",
+    version: "1.0.1",
     status: "running"
   });
 });
@@ -398,7 +413,7 @@ app.use((err, req, res, next) => {
 });
 
 // =====================================
-// START SERVER
+// START
 // =====================================
 
 async function start() {
@@ -413,4 +428,3 @@ start().catch(err => {
   console.error("Startup failed:", err);
   process.exit(1);
 });
- 
