@@ -1,0 +1,123 @@
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#101010">
+  <title>Scrool Social</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="authPage" class="auth-page">
+    <div class="auth-card">
+      <h1 class="logo">SCROOL<span>+</span></h1>
+      <p>دنیای ارتباطات تو، اینجاست.</p>
+
+      <div class="auth-tabs">
+        <button id="loginTab" class="active">ورود</button>
+        <button id="registerTab">ثبت‌نام</button>
+      </div>
+
+      <h2 id="authTitle">ورود به حساب</h2>
+
+      <form id="authForm">
+        <div id="displayNameBox" class="hidden">
+          <input id="displayName" placeholder="نام نمایشی">
+        </div>
+
+        <input id="username" placeholder="نام کاربری" required>
+        <input id="password" type="password" placeholder="رمز عبور" required>
+
+        <button class="gold-btn" type="submit" id="authSubmit">ورود</button>
+      </form>
+
+      <p id="authMessage" class="message"></p>
+    </div>
+  </div>
+
+  <div id="appPage" class="hidden">
+
+    <header class="topbar">
+      <h2 class="logo">SCROOL<span>+</span></h2>
+      <div class="top-actions">
+        <button id="themeToggle">☀️</button>
+        <button id="logoutBtn">خروج</button>
+      </div>
+    </header>
+
+    <main class="layout">
+
+      <aside class="sidebar">
+        <h3>منو</h3>
+        <button class="nav-btn active" data-page="home">🏠 خانه</button>
+        <button class="nav-btn" data-page="profile">👤 پروفایل</button>
+        <button class="nav-btn" data-page="messages">✉️ پیام‌ها</button>
+        <button class="nav-btn" data-page="notifications">🔔 اعلان‌ها</button>
+      </aside>
+
+      <section class="main-content">
+
+        <section id="homePage">
+          <h2>خانه</h2>
+
+          <div class="stories-box">
+            <h3>استوری‌ها</h3>
+            <div class="stories" id="storiesList">
+              <button class="story add-story" id="addStoryBtn">
+                <span>＋</span>
+                <small>استوری من</small>
+              </button>
+            </div>
+          </div>
+
+          <div class="create-post">
+            <h3>چه چیزی در ذهنته؟</h3>
+            <textarea id="postContent" placeholder="یک پست جدید بنویس..."></textarea>
+            <button class="gold-btn" id="publishPost">انتشار پست</button>
+          </div>
+
+          <div id="postsList"></div>
+        </section>
+
+        <section id="profilePage" class="hidden">
+          <h2>پروفایل من</h2>
+          <div class="profile-card">
+            <div class="avatar">👤</div>
+            <h2 id="profileName">کاربر</h2>
+            <p id="profileUsername"></p>
+            <p id="profileBio"></p>
+            <p id="profileCreated"></p>
+          </div>
+        </section>
+
+        <section id="messagesPage" class="hidden">
+          <h2>پیام‌ها</h2>
+          <p>بخش پیام خصوصی در مرحله بعد فعال می‌شود.</p>
+        </section>
+
+        <section id="notificationsPage" class="hidden">
+          <h2>اعلان‌ها</h2>
+          <p>بخش اعلان‌ها در مرحله بعد فعال می‌شود.</p>
+        </section>
+
+      </section>
+
+    </main>
+  </div>
+
+  <div id="storyModal" class="modal hidden">
+    <div class="modal-content">
+      <button class="close-btn" id="closeStory">✕</button>
+      <h2>ساخت استوری</h2>
+      <input type="file" id="storyFile" accept="image/*,video/*">
+      <input id="storyCaption" placeholder="متن استوری (اختیاری)">
+      <button id="submitStory" class="gold-btn">انتشار استوری</button>
+      <p id="storyMessage"></p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
