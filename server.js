@@ -77,6 +77,19 @@ async function setupDatabase() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       PRIMARY KEY(follower_id, following_id),
       CHECK(follower_id <> following_id)
+  // Database migrations
+  await pool.query(`
+    ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS bio VARCHAR(250) DEFAULT ''
+  `);
+
+  await pool.query(`
+    ALTER TABLE public.users
+    ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT ''
+  `);
+
+  console.log("Database migrations completed successfully");
+}
     );
   `);
 
