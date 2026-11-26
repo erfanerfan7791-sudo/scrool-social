@@ -23,7 +23,7 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL.includes("localhost")
     ? false
     : { rejectUnauthorized: false },
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 15000,
   idleTimeoutMillis: 30000
 });
 
@@ -38,12 +38,20 @@ const authLimit = rateLimit({
   legacyHeaders: false
 });
 
-// ===============================
-// DATABASE SETUP
-// ===============================
+// =====================================
+// DATABASE SETUP AND MIGRATIONS
+// =====================================
 
 async function setupDatabase() {
-  // Users
+  // Check database connection
+  const connection = await pool.query(`
+    SELECT current_database() AS database_name,
+           current_schema() AS schema_name
+  `);
+
+  console.log("DATABASE CONNECTION:", connection.rows[0]);
+
+  // Create users table if it does not exist
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.users (
       id SERIAL PRIMARY KEY,
@@ -56,7 +64,7 @@ async function setupDatabase() {
     )
   `);
 
-  // Migrations for existing users table
+  // IMPORTANT: Migrate existing users table
   await pool.query(`
     ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS bio VARCHAR(250) DEFAULT ''
@@ -65,24 +73,19 @@ async function setupDatabase() {
   await pool.query(`
     ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT ''
-const dbInfo = await pool.query(`
-  SELECT
-    current_database() AS database_name,
-    current_schema() AS schema_name
-`);
+  `);
 
-const columns = await pool.query(`
-  SELECT column_name
-  FROM information_schema.columns
-  WHERE table_schema = 'public'
-  AND table_name = 'users'
-`);
+  // Ensure defaults for existing rows
+  await pool.query(`
+    UPDATE public.users
+    SET bio = ''
+    WHERE bio IS NULL
+  `);
 
-console.log("CONNECTED DATABASE:", dbInfo.rows[0]);
-console.log(
-  "USERS COLUMNS:",
-  columns.rows.map(row => row.column_name)
-);
+  await pool.query(`
+    UPDATE public.users
+    SET avatar = ''
+    WHERE avatar IS NULL
   `);
 
   // Posts
@@ -102,7 +105,7 @@ console.log(
       user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
       post_id INTEGER REFERENCES public.posts(id) ON DELETE CASCADE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY(user_id, post_id)
+      PRIMARY KEY (user_id, post_id)
     )
   `);
 
@@ -123,13 +126,13 @@ console.log(
       follower_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
       following_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY(follower_id, following_id),
-      CHECK(follower_id <> following_id)
+      PRIMARY KEY (follower_id, following_id),
+      CHECK (follower_id <> following_id)
     )
   `);
 
-  // Verify users table columns
-  const check = await pool.query(`
+  // Verify actual database columns
+  const result = await pool.query(`
     SELECT column_name
     FROM information_schema.columns
     WHERE table_schema = 'public'
@@ -137,20 +140,22 @@ console.log(
     ORDER BY ordinal_position
   `);
 
-  const columns = check.rows.map(row => row.column_name);
+  const columns = result.rows.map(row => row.column_name);
 
-  console.log("Users table columns:", columns.join(", "));
+  console.log("USERS COLUMNS:", columns.join(", "));
 
   if (!columns.includes("bio") || !columns.includes("avatar")) {
-    throw new Error("Required users columns are missing");
+    throw new Error(
+      "Database migration failed: bio or avatar column is missing"
+    );
   }
 
   console.log("Database migrations completed successfully");
 }
 
-// ===============================
+// =====================================
 // JWT
-// ===============================
+// =====================================
 
 function createToken(user) {
   return jwt.sign(
@@ -163,9 +168,9 @@ function createToken(user) {
   );
 }
 
-// ===============================
+// =====================================
 // AUTHENTICATION
-// ===============================
+// =====================================
 
 function authenticate(req, res, next) {
   const header = req.headers.authorization || "";
@@ -190,17 +195,20 @@ function authenticate(req, res, next) {
   }
 }
 
-// ===============================
-// HEALTH CHECK
-// ===============================
+// =====================================
+// HEALTH
+// =====================================
 
 app.get("/api/health", async (req, res) => {
   try {
-    await pool.query("SELECT 1");
+    const result = await pool.query(`
+      SELECT current_database() AS database_name
+    `);
 
     res.json({
       status: "ok",
       database: "connected",
+      databaseName: result.rows[0].database_name,
       app: "Scrool Social"
     });
   } catch (err) {
@@ -213,9 +221,9 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// ===============================
+// =====================================
 // REGISTER
-// ===============================
+// =====================================
 
 app.post("/api/register", authLimit, async (req, res) => {
   try {
@@ -272,9 +280,9 @@ app.post("/api/register", authLimit, async (req, res) => {
   }
 });
 
-// ===============================
+// =====================================
 // LOGIN
-// ===============================
+// =====================================
 
 app.post("/api/login", authLimit, async (req, res) => {
   try {
@@ -327,9 +335,9 @@ app.post("/api/login", authLimit, async (req, res) => {
   }
 });
 
-// ===============================
+// =====================================
 // CURRENT USER
-// ===============================
+// =====================================
 
 app.get("/api/me", authenticate, async (req, res) => {
   try {
@@ -365,9 +373,9 @@ app.get("/api/me", authenticate, async (req, res) => {
   }
 });
 
-// ===============================
+// =====================================
 // API INFORMATION
-// ===============================
+// =====================================
 
 app.get("/api", (req, res) => {
   res.json({
@@ -377,9 +385,9 @@ app.get("/api", (req, res) => {
   });
 });
 
-// ===============================
+// =====================================
 // ERROR HANDLER
-// ===============================
+// =====================================
 
 app.use((err, req, res, next) => {
   console.error("Unexpected error:", err);
@@ -389,9 +397,9 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ===============================
+// =====================================
 // START SERVER
-// ===============================
+// =====================================
 
 async function start() {
   await setupDatabase();
@@ -405,3 +413,4 @@ start().catch(err => {
   console.error("Startup failed:", err);
   process.exit(1);
 });
+ 
