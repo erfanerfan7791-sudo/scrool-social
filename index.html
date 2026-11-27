@@ -5,11 +5,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#101010">
-  <title>Scrool Social</title>
+  <title>SCROOL+ | Social</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+  <!-- AUTH -->
   <div id="authPage" class="auth-page">
     <div class="auth-card">
       <h1 class="logo">SCROOL<span>+</span></h1>
@@ -37,6 +38,7 @@
     </div>
   </div>
 
+  <!-- APPLICATION -->
   <div id="appPage" class="hidden">
 
     <header class="topbar">
@@ -59,6 +61,7 @@
 
       <section class="main-content">
 
+        <!-- HOME -->
         <section id="homePage">
           <h2>خانه</h2>
 
@@ -81,38 +84,131 @@
           <div id="postsList"></div>
         </section>
 
+        <!-- PROFILE -->
         <section id="profilePage" class="hidden">
-          <h2>پروفایل من</h2>
-          <div class="profile-card">
-            <div class="avatar">👤</div>
-            <h2 id="profileName">کاربر</h2>
-            <p id="profileUsername"></p>
-            <p id="profileBio"></p>
-            <p id="profileCreated"></p>
+
+          <div class="profile-heading">
+            <h2>پروفایل من</h2>
+            <span>حساب کاربری SCROOL+</span>
           </div>
+
+          <div class="profile-card">
+
+            <div class="profile-cover">
+              <span>SCROOL+</span>
+            </div>
+
+            <div class="profile-main">
+
+              <div class="profile-avatar-area">
+                <div class="profile-avatar">
+                  <img id="profileAvatar" src="" alt="عکس پروفایل" class="hidden">
+                  <span id="avatarPlaceholder">👤</span>
+                </div>
+
+                <label for="avatarInput" class="gold-btn avatar-change">
+                  تغییر عکس
+                </label>
+
+                <input
+                  type="file"
+                  id="avatarInput"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                >
+              </div>
+
+              <h2 id="profileName">کاربر</h2>
+              <p id="profileUsername">@username</p>
+              <p id="profileBio">هنوز بیوگرافی ثبت نشده است.</p>
+
+              <p id="profileCreated" class="profile-created"></p>
+
+              <div class="profile-stats">
+                <div>
+                  <strong id="profilePostCount">۰</strong>
+                  <span>پست</span>
+                </div>
+
+                <div>
+                  <strong id="profileFollowers">۰</strong>
+                  <span>دنبال‌کننده</span>
+                </div>
+
+                <div>
+                  <strong id="profileFollowing">۰</strong>
+                  <span>دنبال‌شونده</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- EDIT PROFILE -->
+          <div class="edit-profile-card">
+            <h3>ویرایش پروفایل</h3>
+            <p>اطلاعات حساب کاربری خودت رو مدیریت کن.</p>
+
+            <form id="editProfileForm">
+
+              <label for="editDisplayName">نام نمایشی</label>
+              <input
+                id="editDisplayName"
+                type="text"
+                maxlength="60"
+                placeholder="نام نمایشی جدید"
+                required
+              >
+
+              <label for="editBio">بیوگرافی</label>
+              <textarea
+                id="editBio"
+                maxlength="250"
+                placeholder="کمی درباره خودت بنویس..."
+              ></textarea>
+
+              <button class="gold-btn" type="submit" id="saveProfileBtn">
+                ذخیره تغییرات
+              </button>
+
+              <p id="profileMessage" class="message"></p>
+            </form>
+          </div>
+
+          <div class="profile-posts">
+            <h3>پست‌های من</h3>
+            <div id="myPostsList">
+              <p>هنوز پستی منتشر نکرده‌ای.</p>
+            </div>
+          </div>
+
         </section>
 
+        <!-- MESSAGES -->
         <section id="messagesPage" class="hidden">
           <h2>پیام‌ها</h2>
           <p>بخش پیام خصوصی در مرحله بعد فعال می‌شود.</p>
         </section>
 
+        <!-- NOTIFICATIONS -->
         <section id="notificationsPage" class="hidden">
           <h2>اعلان‌ها</h2>
           <p>بخش اعلان‌ها در مرحله بعد فعال می‌شود.</p>
         </section>
 
       </section>
-
     </main>
   </div>
 
+  <!-- STORY MODAL -->
   <div id="storyModal" class="modal hidden">
     <div class="modal-content">
       <button class="close-btn" id="closeStory">✕</button>
       <h2>ساخت استوری</h2>
+
       <input type="file" id="storyFile" accept="image/*,video/*">
       <input id="storyCaption" placeholder="متن استوری (اختیاری)">
+
       <button id="submitStory" class="gold-btn">انتشار استوری</button>
       <p id="storyMessage"></p>
     </div>
