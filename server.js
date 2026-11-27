@@ -28,7 +28,7 @@ const pool = new Pool({
 });
 
 app.use(helmet());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(__dirname));
 
 const authLimit = rateLimit({
@@ -88,10 +88,16 @@ async function setupDatabase() {
     CREATE TABLE IF NOT EXISTS public.posts (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES public.users(id) ON DELETE CASCADE,
-      content TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
       image_url TEXT DEFAULT '',
+      media JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE public.posts
+    ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '[]'::jsonb
   `);
 
   await pool.query(`
@@ -351,21 +357,27 @@ app.post("/api/login", authLimit, async (req, res) => {
 });
 
 // =====================================
-// CURRENT USER
+// CURRENT USER + PROFILE STATS
 // =====================================
 
 app.get("/api/me", authenticate, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-        id,
-        username,
-        display_name,
-        bio,
-        avatar,
-        created_at
-       FROM public.users
-       WHERE id = $1`,
+        u.id,
+        u.username,
+        u.display_name,
+        u.bio,
+        u.avatar,
+        u.created_at,
+        (SELECT COUNT(*) FROM public.posts p
+         WHERE p.user_id = u.id) AS post_count,
+        (SELECT COUNT(*) FROM public.follows f
+         WHERE f.following_id = u.id) AS followers_count,
+        (SELECT COUNT(*) FROM public.follows f
+         WHERE f.follower_id = u.id) AS following_count
+       FROM public.users u
+       WHERE u.id = $1`,
       [req.user.id]
     );
 
@@ -389,13 +401,100 @@ app.get("/api/me", authenticate, async (req, res) => {
 });
 
 // =====================================
+// UPDATE PROFILE
+// =====================================
+
+app.put("/api/profile", authenticate, async (req, res) => {
+  try {
+    const { displayName, bio, avatar } = req.body || {};
+
+    if (
+      typeof displayName !== "string" ||
+      displayName.trim().length < 2 ||
+      displayName.trim().length > 60
+    ) {
+      return res.status(400).json({
+        error: "نام نمایشی باید بین ۲ تا ۶۰ کاراکتر باشد."
+      });
+    }
+
+    if (
+      typeof bio !== "string" ||
+      bio.length > 250
+    ) {
+      return res.status(400).json({
+        error: "بیوگرافی باید حداکثر ۲۵۰ کاراکتر باشد."
+      });
+    }
+
+    if (typeof avatar !== "string") {
+      return res.status(400).json({
+        error: "اطلاعات عکس نامعتبر است."
+      });
+    }
+
+    // فقط عکس JPEG فشرده‌شده از سمت برنامه پذیرفته می‌شود.
+    if (
+      avatar !== "" &&
+      (
+        !avatar.startsWith("data:image/jpeg;base64,") ||
+        avatar.length > 900000
+      )
+    ) {
+      return res.status(400).json({
+        error: "عکس نامعتبر است یا حجم آن بیش از حد مجاز است."
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE public.users
+       SET display_name = $1,
+           bio = $2,
+           avatar = $3
+       WHERE id = $4
+       RETURNING
+         id,
+         username,
+         display_name,
+         bio,
+         avatar,
+         created_at`,
+      [
+        displayName.trim(),
+        bio.trim(),
+        avatar,
+        req.user.id
+      ]
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({
+        error: "کاربر پیدا نشد."
+      });
+    }
+
+    return res.json({
+      message: "پروفایل ذخیره شد.",
+      user: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error("Profile update error:", err);
+
+    return res.status(500).json({
+      error: "ذخیره پروفایل ناموفق بود."
+    });
+  }
+});
+
+// =====================================
 // API
 // =====================================
 
 app.get("/api", (req, res) => {
   res.json({
     name: "Scrool Social",
-    version: "1.0.1",
+    version: "1.1.0",
     status: "running"
   });
 });
@@ -406,6 +505,12 @@ app.get("/api", (req, res) => {
 
 app.use((err, req, res, next) => {
   console.error("Unexpected error:", err);
+
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      error: "حجم اطلاعات ارسالی بیش از حد مجاز است."
+    });
+  }
 
   res.status(500).json({
     error: "خطای داخلی سرور"
